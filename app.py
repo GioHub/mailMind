@@ -1,123 +1,82 @@
-# app.py
-# --------------------------------------------
-# MailMind – Analizador Inteligente de Correos
-# Versión con ingreso manual del API Key
-# --------------------------------------------
-
 import streamlit as st
 from openai import OpenAI
-import io
 
-# --------------------------------------------
-# CONFIGURACIÓN INICIAL
-# --------------------------------------------
-st.set_page_config(page_title="MailMind - Analizador de Correos", layout="centered")
+st.set_page_config(page_title="MailMind - Analizador de Correos", layout="wide")
 
-st.title("📧 MailMind – Analizador Inteligente de Correos")
-st.caption("Genera resúmenes, identifica acuerdos, dudas, acciones y fechas importantes de tus correos electrónicos.")
+st.title("📧 MailMind")
+st.write("Analiza correos electrónicos para generar resúmenes, identificar acuerdos, dudas, acciones, pendientes y fechas importantes.")
 
-# --------------------------------------------
-# INGRESO DEL API KEY
-# --------------------------------------------
-st.sidebar.header("🔐 Configuración")
-api_key_input = st.sidebar.text_input(
-    "Introduce tu OpenAI API Key:",
-    type="password",
-    placeholder="sk-...",
-    help="Tu clave nunca se almacena; se usa solo durante esta sesión."
+# === Sidebar ===
+st.sidebar.header("⚙️ Configuración")
+
+# Campo para API Key
+api_key = st.sidebar.text_input("🔑 Ingresa tu OpenAI API Key:", type="password")
+
+# Listas desplegables
+model = st.sidebar.selectbox(
+    "Modelo",
+    options=["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
+    index=0  # Valor por defecto: gpt-4o-mini
 )
 
-# Guardamos el API key en la sesión
-if api_key_input:
-    st.session_state["api_key"] = api_key_input
+max_tokens = st.sidebar.selectbox(
+    "Máx. tokens",
+    options=[100, 300, 500, 1000],
+    index=1  # Valor por defecto: 300
+)
 
-# Validamos que haya API key
-if "api_key" not in st.session_state or not st.session_state["api_key"]:
-    st.warning("Por favor, introduce tu OpenAI API Key en la barra lateral para comenzar.")
-    st.stop()
+temperature = st.sidebar.selectbox(
+    "Temperatura",
+    options=[0.2, 0.5, 0.8, 1.0],
+    index=1  # Valor por defecto: 0.5
+)
 
-# Inicializa el cliente con la clave ingresada
-client = OpenAI(api_key=st.session_state["api_key"])
-
-# --------------------------------------------
-# FUNCIÓN PRINCIPAL DE ANÁLISIS
-# --------------------------------------------
-def analizar_correo(contenido):
-    prompt = f"""
-    Analiza el siguiente correo electrónico y genera una salida estructurada con:
-    1. Resumen breve (máx 100 palabras)
-    2. Acuerdos o compromisos
-    3. Dudas o preguntas
-    4. Acciones o tareas pendientes
-    5. Fechas importantes (reuniones, entregas, etc.)
-
-    Texto del correo:
-    {contenido}
-
-    Formatea la respuesta en secciones claras con títulos y emojis adecuados.
-    """
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4
-        )
-
-        return response.choices[0].message.content
-
-    except Exception as e:
-        return f"⚠️ Error al procesar el correo: {str(e)}"
-
-# --------------------------------------------
-# ENTRADA DEL USUARIO
-# --------------------------------------------
+# === Entradas ===
 st.subheader("📩 Entrada de correo")
 
-col1, col2 = st.columns(2)
-with col1:
-    correo_texto = st.text_area(
-        "Pega el contenido del correo aquí:",
-        height=200,
-        placeholder="Copia aquí el texto de tu correo..."
-    )
-with col2:
-    archivo = st.file_uploader("...o selecciona un archivo de texto (.txt o .eml):", type=["txt", "eml"])
+option = st.radio("Selecciona cómo ingresar el correo:", ("Pegar texto", "Subir archivo (.txt, .eml)"))
 
-# --------------------------------------------
-# PROCESAR CONTENIDO
-# --------------------------------------------
-contenido = None
+email_text = ""
+if option == "Pegar texto":
+    email_text = st.text_area("Pega aquí el contenido del correo:", height=200)
+else:
+    uploaded_file = st.file_uploader("Selecciona un archivo", type=["txt", "eml"])
+    if uploaded_file:
+        email_text = uploaded_file.read().decode("utf-8", errors="ignore")
 
-if archivo is not None:
-    try:
-        contenido = archivo.read().decode("utf-8", errors="ignore")
-        st.success("✅ Archivo cargado correctamente.")
-    except Exception:
-        st.error("⚠️ No se pudo leer el archivo. Asegúrate de que sea un .txt o .eml válido.")
-elif correo_texto.strip():
-    contenido = correo_texto
-
+# === Procesamiento ===
 if st.button("🔍 Analizar correo"):
-    if not contenido:
-        st.warning("Por favor, pega un correo o selecciona un archivo antes de analizar.")
+    if not api_key:
+        st.error("Por favor, ingresa tu API Key en la barra lateral.")
+    elif not email_text.strip():
+        st.error("Por favor, ingresa o carga el contenido del correo.")
     else:
-        with st.spinner("Analizando el contenido... ⏳"):
-            resultado = analizar_correo(contenido)
-        st.markdown("---")
-        st.subheader("🧠 Resultados del análisis")
-        st.markdown(resultado)
+        try:
+            client = OpenAI(api_key=api_key)
+            prompt = f"""
+            Analiza el siguiente correo electrónico y genera un resumen estructurado con los siguientes apartados:
+            - 📄 **Resumen general**
+            - ✅ **Acuerdos**
+            - ❓ **Dudas**
+            - 🔧 **Acciones / Tareas**
+            - ⏰ **Fechas importantes o plazos**
+            - 💬 **Personas o equipos mencionados**
 
-        # Opción de descarga del resultado
-        st.download_button(
-            "⬇️ Descargar resultado",
-            data=resultado,
-            file_name="analisis_correo.txt",
-            mime="text/plain"
-        )
+            Contenido del correo:
+            {email_text}
+            """
 
-# --------------------------------------------
-# PIE DE PÁGINA
-# --------------------------------------------
-st.markdown("---")
-st.caption("Desarrollado con ❤️ usando Streamlit + OpenAI")
+            with st.spinner("Analizando correo..."):
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+
+            analysis = response.choices[0].message.content
+            st.success("✅ Análisis completado con éxito")
+            st.markdown(analysis)
+
+        except Exception as e:
+            st.error(f"⚠️ Error al procesar el correo:\n\n{e}")
